@@ -63,9 +63,9 @@ def is_binary(string: str) -> bool:
     Returns:
         ``True`` if the given string is a binary operator, ``False`` otherwise.
     """
-    return string == '&' or string == '|' or string == '->'
+    # return string == '&' or string == '|' or string == '->'
     # For Chapter 3:
-    # return string in {'&', '|',  '->', '+', '<->', '-&', '-|'}
+    return string in {'&', '|', '->', '+', '<->', '-&', '-|'}
 
 
 @frozen
@@ -205,14 +205,18 @@ class Formula:
             return None, "no string"
 
         symbol = string[0]
+
         if is_constant(symbol):
             return Formula(symbol), string[1:]
 
-        if is_variable(symbol):
+        if 'p' <= symbol <= 'z':
             i = 1
-            while i < len(string) and string[i].isalnum():
+            while i < len(string) and string[i].isdecimal():
                 i += 1
-            return Formula(string[:i]), string[i:]
+            name = string[:i]
+            if is_variable(name):
+                return Formula(name), string[i:]
+            return None, "invalid formula"
 
         if is_unary(symbol):
             form, rest = Formula._parse_prefix(string[1:])
@@ -220,14 +224,28 @@ class Formula:
                 return None, rest
             return Formula(symbol, form), rest
 
-        if is_binary(symbol):
+        if symbol == '(':
             left, rest = Formula._parse_prefix(string[1:])
             if left is None:
                 return None, rest
+
+            op = None
+            for k in (3, 2, 1):
+                if len(rest) >= k and is_binary(rest[:k]):
+                    op = rest[:k]
+                    rest = rest[k:]
+                    break
+            if op is None:
+                return None, "invalid formula"
+
             right, rest = Formula._parse_prefix(rest)
             if right is None:
                 return None, rest
-            return Formula(symbol, left, right), rest
+
+            if len(rest) == 0 or rest[0] != ')':
+                return None, "invalid formula"
+
+            return Formula(op, left, right), rest[1:]
 
         return None, "invalid formula"
 
@@ -287,19 +305,74 @@ class Formula:
             A formula whose polish notation representation is the given string.
         """
         # Optional Task 1.8
-        if len(string) == 0:
-            return None
+        ops = ['<->', '->', '-&', '-|', '+', '&', '|']
 
-        symbol = string[0]
-        if is_constant(symbol) or is_variable(symbol):
-            return Formula(symbol)
-        if is_unary(symbol):
-            form2 = Formula.parse_polish(string[1:])
-            return Formula(symbol, form2)
+        def parse_prefix(s: str, top=False):
+            if s == '':
+                if top:
+                    return None
+                return None, s
 
-        left = Formula.parse_polish(string[1:])
-        right = Formula.parse_polish(string[1 + len(left.polish()):])
-        return Formula(symbol, left, right)
+            ch = s[0]
+
+            if is_constant(ch):
+                f, rest = Formula(ch), s[1:]
+                if top:
+                    return f if rest == '' else None
+                return f, rest
+
+            if 'p' <= ch <= 'z':
+                i = 1
+                while i < len(s) and s[i].isdecimal():
+                    i += 1
+                name = s[:i]
+                if not is_variable(name):
+                    if top:
+                        return None
+                    return None, s
+                f, rest = Formula(name), s[i:]
+                if top:
+                    return f if rest == '' else None
+                return f, rest
+
+            if ch == '~':
+                inner = parse_prefix(s[1:], False)
+                if inner[0] is None:
+                    if top:
+                        return None
+                    return None, s
+                f, rest = Formula('~', inner[0]), inner[1]
+                if top:
+                    return f if rest == '' else None
+                return f, rest
+
+            op = None
+            for o in ops:
+                if s.startswith(o):
+                    op = o
+                    break
+            if op is None:
+                if top:
+                    return None
+                return None, s
+
+            left = parse_prefix(s[len(op):], False)
+            if left[0] is None:
+                if top:
+                    return None
+                return None, s
+            right = parse_prefix(left[1], False)
+            if right[0] is None:
+                if top:
+                    return None
+                return None, s
+
+            f, rest = Formula(op, left[0], right[0]), right[1]
+            if top:
+                return f if rest == '' else None
+            return f, rest
+
+        return parse_prefix(string, True)
 
     def substitute_variables(self, substitution_map: Mapping[str, Formula]) -> \
             Formula:
